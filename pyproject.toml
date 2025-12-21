@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chguard"
-version = "0.2.0"
+version = "0.2.1"
 description = "Safety-first tool to snapshot and restore filesystem ownership and permissions."
 authors = ["Marco D'Aleo <marco@marcodaleo.com>"]
 license = "GPL-3.0-or-later"
@@ -12,8 +12,8 @@ repository = "https://git.sysmd.uk/guardutils/chguard"
 python = ">=3.10,<4.0"
 rich = ">=12"
 argcomplete = ">=2"
-platformdirs = "^4.5.1"
-filelock = "^3.20.1"
+platformdirs = ">=4.5.1"
+filelock = ">=3.20.1"
 
 [tool.poetry.scripts]
 chguard = "chguard.cli:main"

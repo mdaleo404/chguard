@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import argcomplete
+import importlib.metadata
 import os
 import sys
 import stat
@@ -25,6 +27,13 @@ from chguard.db import (
 from chguard.scan import scan_tree
 from chguard.restore import plan_restore, apply_restore
 from chguard.util import normalize_root
+
+
+def get_version():
+    try:
+        return importlib.metadata.version("chguard")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def _uid_to_name(uid: int) -> str:
@@ -83,6 +92,19 @@ def _is_root() -> bool:
     return os.geteuid() == 0
 
 
+def complete_state_names(prefix, parsed_args, **kwargs):
+    try:
+        conn = connect(
+            Path(parsed_args.db).expanduser().resolve()
+            if parsed_args.db
+            else None
+        )
+        rows = conn.execute("SELECT name FROM states").fetchall()
+        return [name for (name,) in rows if name.startswith(prefix)]
+    except Exception:
+        return []
+
+
 def main() -> None:
     """
     Entry point for the CLI.
@@ -100,45 +122,99 @@ def main() -> None:
     )
 
     actions = parser.add_mutually_exclusive_group(required=True)
-    actions.add_argument("--save", metavar="PATH", help="Save state for PATH")
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"chguard {get_version()}",
+    )
+
     actions.add_argument(
-        "--restore", action="store_true", help="Restore a saved state"
-    )
+        "--save",
+        metavar="PATH",
+        help="Save state for PATH",
+    ).completer = argcomplete.FilesCompleter()
+
     actions.add_argument(
-        "--list", action="store_true", help="List saved states"
+        "--restore",
+        action="store_true",
+        help="Restore a saved state",
     )
+
     actions.add_argument(
-        "--delete", metavar="STATE", help="Delete a saved state"
+        "--list",
+        action="store_true",
+        help="List saved states",
+    )
+
+    actions.add_argument(
+        "--delete",
+        metavar="STATE",
+        help="Delete a saved state",
+    ).completer = complete_state_names
+
+    # positional STATE
+    parser.add_argument(
+        "state",
+        nargs="?",
+        help="State name (required with --restore)",
+    ).completer = complete_state_names
+
+    parser.add_argument(
+        "--name",
+        help="State name (required with --save)",
     )
 
     parser.add_argument(
-        "state", nargs="?", help="State name (required with --restore)"
-    )
-    parser.add_argument("--name", help="State name (required with --save)")
-    parser.add_argument(
-        "--overwrite", action="store_true", help="Overwrite existing state"
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing state",
     )
 
     parser.add_argument(
-        "--permissions", action="store_true", help="Restore MODE only"
+        "--permissions",
+        action="store_true",
+        help="Restore MODE only",
     )
+
     parser.add_argument(
-        "--owner", action="store_true", help="Restore OWNER only"
+        "--owner",
+        action="store_true",
+        help="Restore OWNER only",
     )
 
     parser.add_argument(
-        "--dry-run", action="store_true", help="Preview only; do not apply"
-    )
-    parser.add_argument(
-        "--yes", action="store_true", help="Apply without confirmation"
+        "--dry-run",
+        action="store_true",
+        help="Preview only; do not apply",
     )
 
-    parser.add_argument("--root", metavar="PATH", help="Override restore root")
     parser.add_argument(
-        "--exclude", action="append", default=[], help="Exclude path prefix"
+        "--yes",
+        action="store_true",
+        help="Apply without confirmation",
     )
-    parser.add_argument("--db", metavar="PATH", help="Override database path")
 
+    parser.add_argument(
+        "--root",
+        metavar="PATH",
+        help="Override restore root",
+    ).completer = argcomplete.FilesCompleter()
+
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="Exclude path prefix",
+    ).completer = argcomplete.FilesCompleter()
+
+    parser.add_argument(
+        "--db",
+        metavar="PATH",
+        help="Override database path",
+    ).completer = argcomplete.FilesCompleter()
+
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
     console = Console()
 

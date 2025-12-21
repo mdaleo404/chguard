@@ -22,8 +22,15 @@ jobs:
       - name: Run pre-commit hooks
         run: pre-commit run --all-files --color always
 
+      - name: Install Poetry
+        run: |
+          pip install poetry
+          poetry self add poetry-plugin-export
+
       - name: Install pip-audit
         run: pip install pip-audit
 
-      - name: Run pip-audit
-        run: pip-audit
+      - name: Audit dependencies (Poetry lockfile)
+        run: |
+          poetry export -f requirements.txt --without-hashes \
+            | pip-audit -r /dev/stdin

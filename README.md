@@ -198,6 +198,16 @@ Snapshots are stored in a local SQLite database containing:
 
 Usernames and permission strings are resolved only for display.
 
+### TAB completion
+Add this to your `.bashrc`
+```
+eval "$(register-python-argcomplete chguard)"
+```
+And then
+```
+source ~/.bashrc
+```
+
 ## pre-commit
 This project uses [**pre-commit**](https://pre-commit.com/) to run automatic formatting and security checks before each commit (Black, Bandit, and various safety checks).
 

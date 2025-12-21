@@ -4,6 +4,11 @@
 
 # chguard
 
+<div align="center">
+  <img src="chguard.png" alt="chguard logo" width="256" />
+</div>
+
+
 **chguard** is a safety-first command-line tool that snapshots and restores
 filesystem ownership and permissions.
 

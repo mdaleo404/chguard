@@ -13,6 +13,7 @@ python = ">=3.10,<4.0"
 rich = ">=12"
 argcomplete = ">=2"
 platformdirs = "^4.5.1"
+filelock = "^3.20.1"
 
 [tool.poetry.scripts]
 chguard = "chguard.cli:main"

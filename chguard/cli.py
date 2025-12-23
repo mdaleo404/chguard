@@ -248,42 +248,49 @@ def main() -> None:
 
         root = normalize_root(args.save)
 
-        if state_exists(conn, args.name):
-            if not args.overwrite:
-                raise SystemExit(
-                    f"State '{args.name}' already exists (use --overwrite)"
-                )
-            delete_state(conn, args.name)
+        try:
+            with conn:  # start transaction
+                if state_exists(conn, args.name):
+                    if not args.overwrite:
+                        raise SystemExit(
+                            f"State '{args.name}' already exists (use --overwrite)"
+                        )
+                    # if the new save fails, this delete_state step will also roll back
+                    delete_state(conn, args.name, commit=False)
 
-        state_id = create_state(conn, args.name, str(root), os.getuid())
-
-        # Abort early if root-owned files exist and user is not root.
-        # This prevents creating snapshots that cannot be meaningfully restored.
-        for entry in scan_tree(root, excludes=args.exclude):
-            if entry.uid == 0 and not _is_root():
-                raise SystemExit(
-                    "This path contains root-owned files.\n"
-                    "Saving this state requires sudo."
+                state_id = create_state(
+                    conn, args.name, str(root), os.getuid(), commit=False
                 )
 
-            conn.execute(
-                """
-                INSERT INTO entries (state_id, path, type, mode, uid, gid)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    state_id,
-                    entry.path,
-                    entry.type,
-                    entry.mode,
-                    entry.uid,
-                    entry.gid,
-                ),
-            )
+                # Abort early if root-owned files exist and user is not root.
+                # This prevents creating snapshots that cannot be meaningfully restored.
+                for entry in scan_tree(root, excludes=args.exclude):
+                    if entry.uid == 0 and not _is_root():
+                        raise SystemExit(
+                            "This path contains root-owned files.\n"
+                            "Saving this state requires sudo."
+                        )
 
-        conn.commit()
-        console.print(f"Saved state '{args.name}' for {root}")
-        return
+                    conn.execute(
+                        """
+                        INSERT INTO entries (state_id, path, type, mode, uid, gid)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            state_id,
+                            entry.path,
+                            entry.type,
+                            entry.mode,
+                            entry.uid,
+                            entry.gid,
+                        ),
+                    )
+
+            console.print(f"Saved state '{args.name}' for {root}")
+            return
+
+        except SystemExit:
+            raise
 
     if args.restore:
         if not args.state:

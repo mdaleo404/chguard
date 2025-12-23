@@ -61,19 +61,28 @@ def state_exists(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def create_state(
-    conn: sqlite3.Connection, name: str, root_path: str, created_by_uid: int
+    conn: sqlite3.Connection,
+    name: str,
+    root_path: str,
+    created_by_uid: int,
+    *,
+    commit: bool = True,
 ) -> int:
     cur = conn.execute(
         "INSERT INTO states (name, root_path, created_at, created_by_uid) VALUES (?, ?, ?, ?)",
         (name, root_path, utc_now_iso(), created_by_uid),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return int(cur.lastrowid)
 
 
-def delete_state(conn: sqlite3.Connection, name: str) -> int:
+def delete_state(
+    conn: sqlite3.Connection, name: str, commit: bool = True
+) -> int:
     cur = conn.execute("DELETE FROM states WHERE name = ?", (name,))
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur.rowcount
 
 

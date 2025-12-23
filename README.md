@@ -5,7 +5,7 @@
 # chguard
 
 <div align="center">
-  <img src="https://git.sysmd.uk/guardutils/chguard/src/branch/main/chguard.png" alt="chguard logo" width="256" />
+  <img src="https://git.sysmd.uk/guardutils/chguard/raw/branch/main/chguard.png" alt="chguard logo" width="256" />
 </div>
 
 

@@ -30,6 +30,31 @@ A single confirmation prompt at the end of a restore (default: **No**).
 ### Dry-run mode
 Preview restore operations without prompting or applying changes.
 
+### Wrapper mode (automatic snapshots)
+
+`chguard` can also run as a wrapper around ownership and permission commands.
+In this mode, `chguard` automatically saves a snapshot before the command runs, so the user can easily restore the previous state if needed.
+
+#### Supported commands
+
+Wrapper mode is intentionally limited to commands that modify filesystem metadata only:
+
+* `chown`
+* `chmod`
+* `chgrp`
+
+Other commands are rejected to avoid giving a _false sense of protection_.
+
+#### Automatic snapshot names
+
+Snapshots created in wrapper mode are named automatically, for example:
+
+```
+auto-20251230-161301
+```
+
+Auto-generated snapshots are visually distinguished in the output so they are easy to identify.
+
 ### Scope control
 Restore:
 * both ownership and permissions (default)
@@ -54,7 +79,6 @@ Restore:
 * provide full “undo” semantics
 
 It only concerns itself with **ownership** and **permissions**.
-
 
 ## Installation
 
@@ -177,6 +201,16 @@ chguard --restore app-baseline --dry-run
 ```
 chguard --restore app-baseline --permissions
 chguard --restore app-baseline --owner
+```
+
+### Wrapper mode
+
+Use `--` to separate `chguard` arguments from the wrapped command:
+
+```
+chguard -- chown user:group file
+chguard -- chmod 755 file
+chguard -- chgrp staff file
 ```
 
 ## Privilege model

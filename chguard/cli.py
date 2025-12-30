@@ -8,6 +8,7 @@ import sys
 import stat
 import pwd
 import grp
+import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 from datetime import datetime
@@ -37,7 +38,6 @@ def get_version():
 
 
 def _uid_to_name(uid: int) -> str:
-    """Return username for uid, or uid as string if unknown."""
     try:
         return pwd.getpwuid(uid).pw_name
     except KeyError:
@@ -45,7 +45,6 @@ def _uid_to_name(uid: int) -> str:
 
 
 def _gid_to_name(gid: int) -> str:
-    """Return group name for gid, or gid as string if unknown."""
     try:
         return grp.getgrgid(gid).gr_name
     except KeyError:
@@ -53,12 +52,10 @@ def _gid_to_name(gid: int) -> str:
 
 
 def _format_owner(uid: int, gid: int) -> str:
-    """Format uid/gid as username:group."""
     return f"{_uid_to_name(uid)}:{_gid_to_name(gid)}"
 
 
 def _mode_to_rwx(mode: int) -> str:
-    """Convert numeric mode to rwx-style permissions."""
     bits = (
         stat.S_IRUSR,
         stat.S_IWUSR,
@@ -88,7 +85,6 @@ def _mode_to_rwx(mode: int) -> str:
 
 
 def _is_root() -> bool:
-    """Return True if running as root."""
     return os.geteuid() == 0
 
 
@@ -105,6 +101,17 @@ def complete_state_names(prefix, parsed_args, **kwargs):
         return []
 
 
+def _extract_paths_from_command(cmd: list[str]) -> list[Path]:
+    paths = []
+    for arg in cmd:
+        if arg.startswith("-"):
+            continue
+        p = Path(arg)
+        if p.exists():
+            paths.append(p.resolve())
+    return paths
+
+
 def main() -> None:
     """
     Entry point for the CLI.
@@ -116,12 +123,33 @@ def main() -> None:
     - Symlinks are skipped during scanning
     """
 
+    wrapper_cmd = None
+    if "--" in sys.argv:
+        idx = sys.argv.index("--")
+        wrapper_cmd = sys.argv[idx + 1 :]
+        sys.argv = sys.argv[:idx]
+
     parser = argparse.ArgumentParser(
         prog="chguard",
         description="Snapshot and restore filesystem ownership and permissions.",
     )
 
-    actions = parser.add_mutually_exclusive_group(required=True)
+    parser = argparse.ArgumentParser(
+        prog="chguard",
+        description="Snapshot and restore filesystem ownership and permissions.",
+        epilog=(
+            "Wrapper mode:\n"
+            "  chguard -- chown [OPTIONS] PATH...\n"
+            "  chguard -- chmod [OPTIONS] PATH...\n"
+            "  chguard -- chgrp [OPTIONS] PATH...\n\n"
+            "In wrapper mode, chguard automatically saves a snapshot of ownership\n"
+            "and permissions for the affected paths before running the command.\n"
+            "Only chown, chmod, and chgrp are supported."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    actions = parser.add_mutually_exclusive_group(required=wrapper_cmd is None)
 
     parser.add_argument(
         "--version",
@@ -216,10 +244,83 @@ def main() -> None:
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
+
+    if wrapper_cmd is not None:
+        if not wrapper_cmd:
+            raise SystemExit("No command provided after '--'")
+
+        cmd = Path(wrapper_cmd[0]).name
+
+        if cmd not in ("chown", "chmod", "chgrp"):
+            raise SystemExit(
+                "Wrapper mode only supports chown, chmod, and chgrp"
+            )
+
     console = Console()
 
     conn = connect(Path(args.db).expanduser().resolve() if args.db else None)
     init_db(conn)
+
+    if wrapper_cmd:
+        paths = _extract_paths_from_command(wrapper_cmd)
+        if paths:
+            auto_name = f"auto-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            with conn:
+                root_path = str(Path(paths[0]).resolve())
+                state_id = create_state(
+                    conn, auto_name, root_path, os.getuid(), commit=False
+                )
+
+                for path in paths:
+                    if path.is_dir():
+                        for entry in scan_tree(path):
+                            if entry.uid == 0 and not _is_root():
+                                raise SystemExit(
+                                    "This command affects root-owned files.\n"
+                                    "Please re-run with sudo."
+                                )
+                            conn.execute(
+                                """
+                                INSERT INTO entries (state_id, path, type, mode, uid, gid)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    state_id,
+                                    entry.path,
+                                    entry.type,
+                                    entry.mode,
+                                    entry.uid,
+                                    entry.gid,
+                                ),
+                            )
+                    else:
+                        st = path.lstat()
+                        if st.st_uid == 0 and not _is_root():
+                            raise SystemExit(
+                                "This command affects root-owned files.\n"
+                                "Please re-run with sudo."
+                            )
+                        conn.execute(
+                            """
+                            INSERT INTO entries (state_id, path, type, mode, uid, gid)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                state_id,
+                                str(path),
+                                "file",
+                                stat.S_IMODE(st.st_mode),
+                                st.st_uid,
+                                st.st_gid,
+                            ),
+                        )
+
+            console.print(
+                f"Saved pre-command snapshot: [cyan]{auto_name}[/cyan]"
+            )
+
+        proc = subprocess.run(wrapper_cmd)
+        sys.exit(proc.returncode)
 
     if args.list:
         rows = conn.execute(
@@ -233,7 +334,10 @@ def main() -> None:
         for name, root, created in rows:
             dt = datetime.fromisoformat(created)
             ts = dt.strftime("%Y-%m-%d %H:%M:%S %z")
-            console.print(f"{name}\t{root}\t[dim]{ts}[/dim]")
+            if name.startswith("auto-"):
+                console.print(f"[cyan]{name}[/cyan]\t{root}\t{ts}")
+            else:
+                console.print(f"{name}\t{root}\t{ts}")
         return
 
     if args.delete:
@@ -346,7 +450,7 @@ def main() -> None:
                 ] = f"{_format_owner(bu, bg)} → {_format_owner(au, ag)}"
                 counts["owner"] += 1
 
-                if au != current_uid:
+                if ch.path.stat().st_uid != current_uid:
                     needs_root = True
 
             elif ch.kind == "mode" and restore_permissions:

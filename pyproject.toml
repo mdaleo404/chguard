@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chguard"
-version = "0.2.2"
+version = "0.3.0"
 description = "Safety-first tool to snapshot and restore filesystem ownership and permissions."
 authors = ["Marco D'Aleo <marco@marcodaleo.com>"]
 license = "GPL-3.0-or-later"

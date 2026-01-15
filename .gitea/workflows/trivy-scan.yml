@@ -1,0 +1,61 @@
+---
+name: Trivy Scan
+on:
+  schedule:
+    - cron: 17 8 * * *
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    runs-on: running-man
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trivy scan via Docker
+        id: trivy
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            --volumes-from "$HOSTNAME" \
+            aquasec/trivy:latest \
+            fs /workspace/guardutils/chguard \
+              --scanners vuln \
+              --pkg-types library \
+              --include-dev-deps \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format json \
+              --output trivy.json \
+              --exit-code 1
+
+      - name: Notify Node-RED on vulnerabilities
+        if: steps.trivy.outcome == 'failure'
+        run: |
+          jq -r '
+          {
+            repo: "guardutils/chguard",
+            summary: (
+              "Total: " +
+              ((.Results[].Vulnerabilities | length) | tostring)
+            ),
+            vulnerabilities: [
+              .Results[].Vulnerabilities[] | {
+                library: .PkgName,
+                cve: .VulnerabilityID,
+                severity: .Severity,
+                installed: .InstalledVersion,
+                fixed: .FixedVersion,
+                title: .Title,
+                url: .PrimaryURL
+              }
+            ]
+          }
+          ' trivy.json \
+          | curl -s -X POST https://nodered.sysmd.uk/trivy-alert \
+              -H "Content-Type: application/json" \
+              --data-binary @-
+
+      - name: Fail workflow if vulnerabilities found
+        if: steps.trivy.outcome == 'failure'
+        run: exit 1

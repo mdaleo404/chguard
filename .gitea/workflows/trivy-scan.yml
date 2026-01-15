@@ -19,7 +19,7 @@ jobs:
           docker run --rm \
             --volumes-from "$HOSTNAME" \
             aquasec/trivy:latest \
-            fs /workspace/guardutils/chguard \
+            fs . \
               --scanners vuln \
               --pkg-types library \
               --include-dev-deps \

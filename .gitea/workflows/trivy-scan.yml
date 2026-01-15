@@ -18,9 +18,9 @@ jobs:
         run: |
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/work" \
-            -w /work \
+            -w /work/guardutils/chguard \
             aquasec/trivy:latest \
-            fs /work \
+            fs . \
               --scanners vuln \
               --pkg-types library \
               --include-dev-deps \

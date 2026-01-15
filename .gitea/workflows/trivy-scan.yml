@@ -17,10 +17,9 @@ jobs:
         continue-on-error: true
         run: |
           docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/work" \
-            -w /work/guardutils/chguard \
+            --volumes-from "$HOSTNAME" \
             aquasec/trivy:latest \
-            fs . \
+            fs /workspace/guardutils/chguard \
               --scanners vuln \
               --pkg-types library \
               --include-dev-deps \
@@ -28,7 +27,6 @@ jobs:
               --ignore-unfixed \
               --format json \
               --output trivy.json \
-              --debug \
               --exit-code 1
 
       - name: Notify Node-RED on vulnerabilities

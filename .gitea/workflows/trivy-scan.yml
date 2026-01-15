@@ -20,7 +20,7 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             aquasec/trivy:latest \
-            fs . \
+            fs /work \
               --scanners vuln \
               --pkg-types library \
               --include-dev-deps \
@@ -28,6 +28,7 @@ jobs:
               --ignore-unfixed \
               --format json \
               --output trivy.json \
+              --debug \
               --exit-code 1
 
       - name: Notify Node-RED on vulnerabilities

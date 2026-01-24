@@ -331,14 +331,31 @@ def main() -> None:
             console.print("No saved states.")
             return
 
+        table = Table(box=box.SIMPLE, header_style="bold")
+
+        table.add_column("State")
+        table.add_column("Root path")
+        table.add_column("Created")
+
         for name, root, created in rows:
             dt = datetime.fromisoformat(created)
             ts = dt.strftime("%Y-%m-%d %H:%M:%S %z")
-            if name.startswith("auto-"):
-                console.print(f"[cyan]{name}[/cyan]\t{root}\t{ts}")
-            else:
-                console.print(f"{name}\t{root}\t{ts}")
-        return
+
+            state_name = (
+                f"[bright_cyan]{name}[/bright_cyan]"
+                if name.startswith("auto-")
+                else name
+            )
+            root = f"[bright_magenta]{root}[/bright_magenta]"
+            ts = f"[bright_cyan]{created}[/bright_cyan]"
+
+            table.add_row(
+                state_name,
+                root,
+                ts,
+            )
+
+        console.print(table)
 
     if args.delete:
         if delete_state(conn, args.delete) == 0:

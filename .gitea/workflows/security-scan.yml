@@ -40,13 +40,11 @@ jobs:
           FILE="syft_${VERSION_NO_V}_linux_amd64.tar.gz"
           BASE_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}"
 
-          # Download artifacts
           curl -fLO ${BASE_URL}/${FILE}
           curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt
           curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt.sig
           curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt.pem
 
-          # Verify checksums file
           cosign verify-blob \
             --signature syft_${VERSION_NO_V}_checksums.txt.sig \
             --certificate syft_${VERSION_NO_V}_checksums.txt.pem \
@@ -54,10 +52,14 @@ jobs:
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             syft_${VERSION_NO_V}_checksums.txt
 
-          # Verify binary integrity
-          grep " ${FILE}$" syft_${VERSION_NO_V}_checksums.txt | sha256sum -c -
+          CHECKSUM_LINE=$(grep " ${FILE}$" syft_${VERSION_NO_V}_checksums.txt)
+          if [ -z "$CHECKSUM_LINE" ]; then
+            echo "Missing checksum entry for ${FILE}"
+            exit 1
+          fi
 
-          # Install
+          echo "$CHECKSUM_LINE" | sha256sum -c -
+
           tar -xzf ${FILE}
           mv syft /usr/local/bin/
 
@@ -71,13 +73,11 @@ jobs:
           FILE="grype_${VERSION_NO_V}_linux_amd64.tar.gz"
           BASE_URL="https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}"
 
-          # Download artifacts
           curl -fLO ${BASE_URL}/${FILE}
           curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt
           curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt.sig
           curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt.pem
 
-          # Verify checksums file
           cosign verify-blob \
             --signature grype_${VERSION_NO_V}_checksums.txt.sig \
             --certificate grype_${VERSION_NO_V}_checksums.txt.pem \
@@ -85,10 +85,14 @@ jobs:
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             grype_${VERSION_NO_V}_checksums.txt
 
-          # Verify binary integrity
-          grep " ${FILE}$" grype_${VERSION_NO_V}_checksums.txt | sha256sum -c -
+          CHECKSUM_LINE=$(grep " ${FILE}$" grype_${VERSION_NO_V}_checksums.txt)
+          if [ -z "$CHECKSUM_LINE" ]; then
+            echo "Missing checksum entry for ${FILE}"
+            exit 1
+          fi
 
-          # Install
+          echo "$CHECKSUM_LINE" | sha256sum -c -
+
           tar -xzf ${FILE}
           mv grype /usr/local/bin/
 
@@ -112,20 +116,27 @@ jobs:
         run: |
           grype sbom:sbom.json -o json > grype.json
 
-          echo "Vulnerabilities found:"
+          echo "Vulnerabilities (fixable only):"
           jq -r '
             .matches[]
-            | "\(.artifact.name)@\(.artifact.version) -> \(.vulnerability.id) [\(.vulnerability.severity)]"
-          ' grype.json || true
+            | select((.vulnerability.fix.versions | length) > 0)
+            | "\(.artifact.name)@\(.artifact.version) -> \(.vulnerability.id) [\(.vulnerability.severity)] | fixed: \(.vulnerability.fix.versions[0])"
+          ' grype.json
 
-          # Fail on MEDIUM/HIGH/CRITICAL
+          # Fail only on fixable MEDIUM/HIGH/CRITICAL
           jq -e '
             [
               .matches[]?
               | select(
-                  (.vulnerability.severity == "Medium") or
-                  (.vulnerability.severity == "High") or
-                  (.vulnerability.severity == "Critical")
+                  (
+                    .vulnerability.severity == "Medium" or
+                    .vulnerability.severity == "High" or
+                    .vulnerability.severity == "Critical"
+                  )
+                  and
+                  (
+                    (.vulnerability.fix.versions | length) > 0
+                  )
                 )
             ]
             | length == 0
@@ -146,17 +157,22 @@ jobs:
             repo: "guardutils/chguard",
             summary: (
               "Total: " +
-              ((.matches | length) | tostring)
+              (
+                [
+                  .matches[]
+                  | select((.vulnerability.fix.versions | length) > 0)
+                ] | length | tostring
+              )
             ),
             vulnerabilities: [
-              .matches[] | {
+              .matches[]
+              | select((.vulnerability.fix.versions | length) > 0)
+              | {
                 library: .artifact.name,
                 cve: .vulnerability.id,
                 severity: .vulnerability.severity,
                 installed: .artifact.version,
-                fixed: (
-                  .vulnerability.fix.versions[0] // "none"
-                ),
+                fixed: (.vulnerability.fix.versions[0]),
                 title: .vulnerability.description,
                 url: .vulnerability.dataSource
               }

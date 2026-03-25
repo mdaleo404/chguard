@@ -1,0 +1,172 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: 27 8 * * *
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    runs-on: running-man
+
+    env:
+      TARGET_DIR: .
+      COSIGN_VERSION: v3.0.5
+      SYFT_VERSION: v1.42.3
+      GRYPE_VERSION: v0.110.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Cosign (bootstrap)
+        run: |
+          set -euo pipefail
+
+          FILE="cosign-linux-amd64"
+
+          curl -fLO https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/${FILE}
+
+          chmod +x ${FILE}
+          mv ${FILE} /usr/local/bin/cosign
+
+          cosign version
+
+      - name: Install Syft (verified)
+        run: |
+          set -euo pipefail
+
+          VERSION_NO_V="${SYFT_VERSION#v}"
+          FILE="syft_${VERSION_NO_V}_linux_amd64.tar.gz"
+          BASE_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}"
+
+          # Download artifacts
+          curl -fLO ${BASE_URL}/${FILE}
+          curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt
+          curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt.sig
+          curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt.pem
+
+          # Verify checksums file
+          cosign verify-blob \
+            --signature syft_${VERSION_NO_V}_checksums.txt.sig \
+            --certificate syft_${VERSION_NO_V}_checksums.txt.pem \
+            --certificate-identity-regexp "https://github.com/anchore/syft" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            syft_${VERSION_NO_V}_checksums.txt
+
+          # Verify binary integrity
+          grep " ${FILE}$" syft_${VERSION_NO_V}_checksums.txt | sha256sum -c -
+
+          # Install
+          tar -xzf ${FILE}
+          mv syft /usr/local/bin/
+
+          syft version
+
+      - name: Install Grype (verified)
+        run: |
+          set -euo pipefail
+
+          VERSION_NO_V="${GRYPE_VERSION#v}"
+          FILE="grype_${VERSION_NO_V}_linux_amd64.tar.gz"
+          BASE_URL="https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}"
+
+          # Download artifacts
+          curl -fLO ${BASE_URL}/${FILE}
+          curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt
+          curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt.sig
+          curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt.pem
+
+          # Verify checksums file
+          cosign verify-blob \
+            --signature grype_${VERSION_NO_V}_checksums.txt.sig \
+            --certificate grype_${VERSION_NO_V}_checksums.txt.pem \
+            --certificate-identity-regexp "https://github.com/anchore/grype" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            grype_${VERSION_NO_V}_checksums.txt
+
+          # Verify binary integrity
+          grep " ${FILE}$" grype_${VERSION_NO_V}_checksums.txt | sha256sum -c -
+
+          # Install
+          tar -xzf ${FILE}
+          mv grype /usr/local/bin/
+
+          grype version
+
+      - name: Generate SBOM
+        working-directory: ${{ env.TARGET_DIR }}
+        run: |
+          syft dir:. -o json > sbom.json
+
+      - name: Show SBOM contents
+        working-directory: ${{ env.TARGET_DIR }}
+        run: |
+          echo "Packages discovered by Syft:"
+          jq -r '.artifacts[] | "\(.name)@\(.version) [\(.type)]"' sbom.json | sort
+
+      - name: Run Grype scan (JSON)
+        id: audit
+        continue-on-error: true
+        working-directory: ${{ env.TARGET_DIR }}
+        run: |
+          grype sbom:sbom.json -o json > grype.json
+
+          echo "Vulnerabilities found:"
+          jq -r '
+            .matches[]
+            | "\(.artifact.name)@\(.artifact.version) -> \(.vulnerability.id) [\(.vulnerability.severity)]"
+          ' grype.json || true
+
+          # Fail on MEDIUM/HIGH/CRITICAL
+          jq -e '
+            [
+              .matches[]?
+              | select(
+                  (.vulnerability.severity == "Medium") or
+                  (.vulnerability.severity == "High") or
+                  (.vulnerability.severity == "Critical")
+                )
+            ]
+            | length == 0
+          ' grype.json
+
+      - name: Show full Grype table
+        working-directory: ${{ env.TARGET_DIR }}
+        run: |
+          echo "Full Grype report:"
+          grype sbom:sbom.json -o table
+
+      - name: Notify Node-RED on vulnerabilities
+        if: steps.audit.outcome == 'failure'
+        working-directory: ${{ env.TARGET_DIR }}
+        run: |
+          jq '
+          {
+            repo: "guardutils/chguard",
+            summary: (
+              "Total: " +
+              ((.matches | length) | tostring)
+            ),
+            vulnerabilities: [
+              .matches[] | {
+                library: .artifact.name,
+                cve: .vulnerability.id,
+                severity: .vulnerability.severity,
+                installed: .artifact.version,
+                fixed: (
+                  .vulnerability.fix.versions[0] // "none"
+                ),
+                title: .vulnerability.description,
+                url: .vulnerability.dataSource
+              }
+            ]
+          }
+          ' grype.json \
+          | curl -s -X POST https://nodered.sysmd.uk/vulns-alert \
+              -H "Content-Type: application/json" \
+              --data-binary @-
+
+      - name: Fail workflow if vulnerabilities found
+        if: steps.audit.outcome == 'failure'
+        run: exit 1

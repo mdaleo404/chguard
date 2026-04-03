@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chguard"
-version = "0.3.3"
+version = "0.3.4"
 description = "Safety-first tool to snapshot and restore filesystem ownership and permissions."
 authors = ["Marco D'Aleo <marco@marcodaleo.com>"]
 license = "GPL-3.0-or-later"
@@ -18,7 +18,7 @@ filelock = ">=3.15.4"
 [tool.poetry.scripts]
 chguard = "chguard.cli:main"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pre-commit = "^3.8"
 
 [tool.black]

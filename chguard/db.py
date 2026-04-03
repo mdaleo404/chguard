@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from platformdirs import user_data_dir
 
-
 APP_NAME = "chguard"
 
 
@@ -24,8 +23,7 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS states (
             id INTEGER PRIMARY KEY,
             name TEXT UNIQUE NOT NULL,
@@ -46,8 +44,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_entries_state_id ON entries(state_id);
-        """
-    )
+        """)
     conn.commit()
 
 

@@ -203,6 +203,26 @@ chguard --restore app-baseline --permissions
 chguard --restore app-baseline --owner
 ```
 
+### Remove old states
+```
+chguard --prune-states
+```
+This removes states older than the number of days set in `CHGUARD_STATES_LIFE`
+
+### Remove states older than _N_ days
+```
+chguard --prune-states=14
+```
+This removes all states older than 14 days.
+
+### Remove all states
+```
+chguard --prune-states=all
+```
+
+### Environment Variable
+`CHGUARD_STATES_LIFE`controls the default number of days to keep when using `chguard --prune-states`.
+
 ### Wrapper mode
 
 Use `--` to separate `chguard` arguments from the wrapped command:

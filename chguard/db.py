@@ -4,6 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
 from platformdirs import user_data_dir
 
 APP_NAME = "chguard"
@@ -66,7 +67,8 @@ def create_state(
     commit: bool = True,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO states (name, root_path, created_at, created_by_uid) VALUES (?, ?, ?, ?)",
+        "INSERT INTO states (name, root_path, created_at, created_by_uid) "
+        "VALUES (?, ?, ?, ?)",
         (name, root_path, utc_now_iso(), created_by_uid),
     )
     if commit:
@@ -83,6 +85,28 @@ def delete_state(
     return cur.rowcount
 
 
+def prune_states_before(
+    conn: sqlite3.Connection,
+    cutoff_iso: str,
+    *,
+    commit: bool = True,
+) -> int:
+    cur = conn.execute(
+        "DELETE FROM states WHERE created_at < ?",
+        (cutoff_iso,),
+    )
+    if commit:
+        conn.commit()
+    return cur.rowcount
+
+
+def prune_all_states(conn: sqlite3.Connection, *, commit: bool = True) -> int:
+    cur = conn.execute("DELETE FROM states")
+    if commit:
+        conn.commit()
+    return cur.rowcount
+
+
 @dataclass(frozen=True)
 class State:
     id: int
@@ -94,7 +118,8 @@ class State:
 
 def get_state(conn: sqlite3.Connection, name: str) -> State | None:
     cur = conn.execute(
-        "SELECT id, name, root_path, created_at, created_by_uid FROM states WHERE name = ?",
+        "SELECT id, name, root_path, created_at, created_by_uid "
+        "FROM states WHERE name = ?",
         (name,),
     )
     row = cur.fetchone()

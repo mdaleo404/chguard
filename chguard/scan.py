@@ -27,8 +27,42 @@ def _is_excluded(rel: str, excludes: Iterable[str]) -> bool:
     return False
 
 
+def _entry_for_path(p: Path, root: Path) -> Entry | None:
+    try:
+        st = p.lstat()  # never follow symlinks
+    except FileNotFoundError:
+        return None
+
+    if stat.S_ISDIR(st.st_mode):
+        typ = "dir"
+    elif stat.S_ISREG(st.st_mode):
+        typ = "file"
+    elif stat.S_ISLNK(st.st_mode):
+        typ = "symlink"
+    else:
+        # skip special files (devices, sockets, fifos) in v0.1
+        return None
+
+    rel = "" if p == root else str(p.relative_to(root))
+
+    return Entry(
+        path=rel,
+        type=typ,
+        mode=stat.S_IMODE(st.st_mode),
+        uid=st.st_uid,
+        gid=st.st_gid,
+    )
+
+
 def scan_tree(root: Path, excludes: Iterable[str] = ()) -> Iterator[Entry]:
     root = root.resolve()
+
+    root_entry = _entry_for_path(root, root)
+    if root_entry is not None:
+        yield root_entry
+
+    if not root.is_dir():
+        return
 
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         # prune excluded directories early
@@ -56,24 +90,6 @@ def scan_tree(root: Path, excludes: Iterable[str] = ()) -> Iterator[Entry]:
         # record dirs and files
         for name in list(dirnames) + list(files):
             p = Path(dirpath) / name
-            try:
-                st = p.lstat()  # never follow symlinks
-            except FileNotFoundError:
-                continue
-
-            rel = str(p.relative_to(root))
-
-            if stat.S_ISDIR(st.st_mode):
-                typ = "dir"
-            elif stat.S_ISREG(st.st_mode):
-                typ = "file"
-            elif stat.S_ISLNK(st.st_mode):
-                typ = "symlink"
-            else:
-                # skip special files (devices, sockets, fifos) in v0.1
-                continue
-
-            mode = stat.S_IMODE(st.st_mode)
-            yield Entry(
-                path=rel, type=typ, mode=mode, uid=st.st_uid, gid=st.st_gid
-            )
+            entry = _entry_for_path(p, root)
+            if entry is not None:
+                yield entry

@@ -159,6 +159,117 @@ def _extract_paths_from_command(cmd: list[str]) -> list[Path]:
     return paths
 
 
+def _common_snapshot_root(paths: list[Path]) -> Path:
+    if len(paths) == 1:
+        return paths[0].resolve()
+
+    return Path(os.path.commonpath([str(p.resolve()) for p in paths]))
+
+
+def _type_for_mode(mode: int) -> str | None:
+    if stat.S_ISDIR(mode):
+        return "dir"
+    if stat.S_ISREG(mode):
+        return "file"
+    if stat.S_ISLNK(mode):
+        return "symlink"
+    return None
+
+
+def _iter_entries_for_target(path: Path, snapshot_root: Path):
+    """Yield Entry-like tuples for one wrapper-mode target.
+
+    The paths yielded here are relative to the single snapshot root for the
+    whole wrapped command, not relative to each individual command argument.
+    This lets one auto-snapshot cover commands such as:
+
+        chmod 700 foo1 foo2
+
+    without inserting multiple entries with the empty relative path.
+    """
+
+    def entry_for(p: Path):
+        try:
+            st = p.lstat()
+        except FileNotFoundError:
+            return None
+
+        typ = _type_for_mode(st.st_mode)
+        if typ is None:
+            return None
+
+        rel = "" if p == snapshot_root else str(p.relative_to(snapshot_root))
+        return rel, typ, stat.S_IMODE(st.st_mode), st.st_uid, st.st_gid
+
+    first = entry_for(path)
+    if first is not None:
+        yield first
+
+    if not path.is_dir():
+        return
+
+    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+        for name in list(dirnames) + list(filenames):
+            entry = entry_for(Path(dirpath) / name)
+            if entry is not None:
+                yield entry
+
+
+def _entry_is_under(rel: str, root: str) -> bool:
+    return rel == root or rel.startswith(root.rstrip("/") + "/")
+
+
+def _root_entry_summary(entry_type: str) -> str:
+    if entry_type == "dir":
+        return "directory tree"
+    if entry_type == "file":
+        return "file"
+    if entry_type == "symlink":
+        return "symlink"
+    return entry_type
+
+
+def _captured_paths_summary(
+    conn, state_id: int, root_path: str, limit: int = 5
+) -> str:
+    root_entry = conn.execute(
+        """
+        SELECT type
+        FROM entries
+        WHERE state_id = ? AND (path = '' OR path = ?)
+        LIMIT 1
+        """,
+        (state_id, root_path),
+    ).fetchone()
+    if root_entry is not None:
+        return _root_entry_summary(root_entry[0])
+
+    roots: list[str] = []
+    truncated = False
+
+    rows = conn.execute(
+        "SELECT path FROM entries WHERE state_id = ? ORDER BY path",
+        (state_id,),
+    )
+    for (rel,) in rows:
+        if any(_entry_is_under(rel, root) for root in roots):
+            continue
+
+        if len(roots) >= limit:
+            truncated = True
+            break
+
+        roots.append(rel)
+
+    if not roots:
+        return "—"
+
+    summary = ", ".join(roots)
+    if truncated:
+        summary += ", …"
+    return summary
+
+
 def main() -> None:
     wrapper_cmd = None
     if "--" in sys.argv:
@@ -273,58 +384,30 @@ def main() -> None:
 
         if paths:
             auto_name = f"auto-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-            root_path = paths[0].resolve()
+            root_path = _common_snapshot_root(paths)
 
             with conn:
                 state_id = create_state(
                     conn, auto_name, str(root_path), os.getuid(), commit=False
                 )
 
+                seen_paths: set[str] = set()
                 for path in paths:
-                    if path.is_dir():
-                        for entry in scan_tree(path):
-                            if entry.uid == 0 and not _is_root():
-                                raise SystemExit(
-                                    "This command affects root-owned files.\n"
-                                    "Please re-run with sudo."
-                                )
-                            conn.execute(
-                                """
-                                INSERT INTO entries
-                                    (state_id, path, type, mode, uid, gid)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                                """,
-                                (
-                                    state_id,
-                                    entry.path,
-                                    entry.type,
-                                    entry.mode,
-                                    entry.uid,
-                                    entry.gid,
-                                ),
-                            )
-                    else:
-                        st = path.lstat()
-                        if st.st_uid == 0 and not _is_root():
+                    for rel, typ, mode, uid, gid in _iter_entries_for_target(
+                        path, root_path
+                    ):
+                        # A command may name the same path more than once, or
+                        # name overlapping trees such as "foo" and "foo/bar".
+                        # Store the pre-command state once per path.
+                        if rel in seen_paths:
+                            continue
+                        seen_paths.add(rel)
+
+                        if uid == 0 and not _is_root():
                             raise SystemExit(
                                 "This command affects root-owned files.\n"
                                 "Please re-run with sudo."
                             )
-
-                        if stat.S_ISLNK(st.st_mode):
-                            typ = "symlink"
-                        elif stat.S_ISREG(st.st_mode):
-                            typ = "file"
-                        elif stat.S_ISDIR(st.st_mode):
-                            typ = "dir"
-                        else:
-                            continue
-
-                        rel = (
-                            ""
-                            if path.resolve() == root_path
-                            else str(path.resolve().relative_to(root_path))
-                        )
 
                         conn.execute(
                             """
@@ -332,14 +415,7 @@ def main() -> None:
                                 (state_id, path, type, mode, uid, gid)
                             VALUES (?, ?, ?, ?, ?, ?)
                             """,
-                            (
-                                state_id,
-                                rel,
-                                typ,
-                                stat.S_IMODE(st.st_mode),
-                                st.st_uid,
-                                st.st_gid,
-                            ),
+                            (state_id, rel, typ, mode, uid, gid),
                         )
 
             console.print(
@@ -422,7 +498,7 @@ def main() -> None:
 
     if args.list:
         rows = conn.execute("""
-            SELECT name, root_path, created_at
+            SELECT id, name, root_path, created_at
             FROM states
             ORDER BY created_at DESC
             """).fetchall()
@@ -433,10 +509,11 @@ def main() -> None:
 
         table = Table(box=box.SIMPLE, header_style="bold")
         table.add_column("State")
-        table.add_column("Root path")
+        table.add_column("Snapshot root")
+        table.add_column("Captured paths")
         table.add_column("Created")
 
-        for name, root, created in rows:
+        for state_id, name, root, created in rows:
             state_name = (
                 f"[bright_cyan]{name}[/bright_cyan]"
                 if name.startswith("auto-")
@@ -445,6 +522,7 @@ def main() -> None:
             table.add_row(
                 state_name,
                 f"[bright_magenta]{root}[/bright_magenta]",
+                _captured_paths_summary(conn, state_id, root),
                 f"[bright_cyan]{created}[/bright_cyan]",
             )
 

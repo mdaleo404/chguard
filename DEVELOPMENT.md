@@ -606,7 +606,7 @@ Scheduled/manual security workflow:
   -> fail workflow on those vulnerabilities
 ```
 
-Pre-commit currently includes Black, trailing whitespace, EOF, YAML, and TOML checks. The Bandit hook exists, but its `files` pattern is `^src/mirro/`, which does not match the current `chguard/` package layout. If relying on Bandit for this project, fix that pattern.
+Pre-commit currently includes Bandit, Black, trailing whitespace, EOF, YAML, and TOML checks.
 
 ---
 

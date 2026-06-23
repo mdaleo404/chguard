@@ -3,7 +3,7 @@ repos:
     rev: 1.9.4
     hooks:
       - id: bandit
-        files: ^src/chguard/
+        files: ^chguard/
         args: ["-lll", "-iii", "-s", "B110,B112"]
 
   - repo: https://github.com/psf/black-pre-commit-mirror

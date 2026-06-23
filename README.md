@@ -19,10 +19,13 @@ applies changes after explicit confirmation.
 ## Features
 
 ### Snapshots ownership and permissions
-Records numeric `uid`, `gid`, and file mode for files and directories.
+Records numeric `uid`, `gid`, and file mode for files, directories, and
+symbolic links.
 
 ### Preview before restore
 Always shows a clear, readable table of differences before applying changes.
+Missing paths and type mismatches are shown as skipped items because restore does
+not create, delete, or replace files.
 
 ### Interactive confirmation
 A single confirmation prompt at the end of a restore (default: **No**).
@@ -65,7 +68,7 @@ Restore:
 * Never creates, deletes, or moves files
 * Missing files are ignored
 * New files are ignored
-* Symbolic links are skipped entirely
+* Symbolic links are handled without following their targets
 * Requires sudo **only when necessary**
 
 ## Non-Goals
@@ -178,7 +181,8 @@ app-baseline   /srv/app   2025-12-20 18:11:08 +00:00
 chguard --restore app-baseline
 ```
 
-This shows a table of ownership and permission differences.
+This shows a table of ownership and permission differences. Missing paths and
+type mismatches are reported as skipped items.
 
 ### Restore with confirmation
 ```
@@ -246,7 +250,7 @@ chguard -- chgrp staff file
 Snapshots are stored in a local SQLite database containing:
 
 * relative path
-* file type (file or directory)
+* file type (file, directory, or symbolic link)
 * numeric uid / gid
 * numeric mode
 
@@ -271,3 +275,11 @@ poetry install
 poetry run pre-commit install
 ```
 This ensures consistent formatting, catches common issues early, and keeps the codebase clean.
+
+## Tests
+
+Run the pytest suite with:
+
+```
+poetry run pytest
+```

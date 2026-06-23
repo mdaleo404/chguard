@@ -27,7 +27,7 @@ from chguard.db import (
     prune_states_before,
     state_exists,
 )
-from chguard.restore import apply_restore, plan_restore
+from chguard.restore import PlannedChange, apply_restore, plan_restore
 from chguard.scan import scan_tree
 from chguard.util import normalize_root
 
@@ -268,6 +268,74 @@ def _captured_paths_summary(
     if truncated:
         summary += ", …"
     return summary
+
+
+def _display_restore_path(path: Path, target_root: Path) -> Path:
+    try:
+        return path.relative_to(target_root)
+    except ValueError:
+        return path
+
+
+def _format_skipped_restore_change(change: PlannedChange) -> str:
+    if change.kind == "missing":
+        return "missing path"
+
+    if change.kind == "type":
+        got, expected = change.detail.split(" -> ", 1)
+        return f"found {got}, expected {expected}"
+
+    return change.detail
+
+
+def _restore_preview_rows(
+    changes: list[PlannedChange], target_root: Path, current_uid: int
+) -> tuple[dict[Path, dict[str, str]], Counter, bool]:
+    per_path: dict[Path, dict[str, str]] = defaultdict(dict)
+    counts = Counter()
+    needs_root = False
+
+    for ch in changes:
+        rel = _display_restore_path(ch.path, target_root)
+
+        if ch.kind == "owner" and ch.will_apply:
+            before, after = ch.detail.split(" -> ")
+            bu, bg = map(int, before.split(":"))
+            au, ag = map(int, after.split(":"))
+
+            owner_change = f"{_format_owner(bu, bg)} → {_format_owner(au, ag)}"
+            per_path[rel]["owner"] = owner_change
+            counts["owner"] += 1
+
+            try:
+                if ch.path.lstat().st_uid != current_uid:
+                    needs_root = True
+            except FileNotFoundError:
+                pass
+
+        elif ch.kind == "mode" and ch.will_apply:
+            before, after = ch.detail.split(" -> ")
+            per_path[rel]["mode"] = (
+                f"{_mode_to_rwx(int(before, 8))} → "
+                f"{_mode_to_rwx(int(after, 8))}"
+            )
+            counts["mode"] += 1
+
+            try:
+                if ch.path.lstat().st_uid != current_uid:
+                    needs_root = True
+            except FileNotFoundError:
+                pass
+
+        elif ch.kind in ("missing", "type"):
+            skipped = _format_skipped_restore_change(ch)
+            existing = per_path[rel].get("skipped")
+            per_path[rel]["skipped"] = (
+                f"{existing}; {skipped}" if existing else skipped
+            )
+            counts["skipped"] += 1
+
+    return per_path, counts, needs_root
 
 
 def main() -> None:
@@ -607,51 +675,18 @@ def main() -> None:
             restore_owner=restore_owner,
         )
 
-        per_path: dict[Path, dict[str, str]] = defaultdict(dict)
-        counts = Counter()
-        needs_root = False
-        current_uid = os.geteuid()
+        per_path, counts, needs_root = _restore_preview_rows(
+            changes, target_root, os.geteuid()
+        )
 
-        for ch in changes:
-            if ch.kind not in ("owner", "mode"):
-                continue
-
-            try:
-                rel = ch.path.relative_to(target_root)
-            except ValueError:
-                rel = ch.path
-
-            if ch.kind == "owner" and restore_owner:
-                before, after = ch.detail.split(" -> ")
-                bu, bg = map(int, before.split(":"))
-                au, ag = map(int, after.split(":"))
-
-                per_path[rel][
-                    "owner"
-                ] = f"{_format_owner(bu, bg)} → {_format_owner(au, ag)}"
-                counts["owner"] += 1
-
-                try:
-                    if ch.path.stat().st_uid != current_uid:
-                        needs_root = True
-                except FileNotFoundError:
-                    pass
-
-            elif ch.kind == "mode" and restore_permissions:
-                b, a = ch.detail.split(" -> ")
-                per_path[rel][
-                    "mode"
-                ] = f"{_mode_to_rwx(int(b, 8))} → {_mode_to_rwx(int(a, 8))}"
-                counts["mode"] += 1
-
-                try:
-                    if ch.path.stat().st_uid != current_uid:
-                        needs_root = True
-                except FileNotFoundError:
-                    pass
+        if not changes:
+            console.print("No differences found.")
+            return
 
         if not per_path:
-            console.print("No differences found.")
+            console.print(
+                "No differences found for the selected restore scope."
+            )
             return
 
         console.print(f"\nRestoring under: {target_root}\n")
@@ -660,18 +695,30 @@ def main() -> None:
         table.add_column("Path")
         table.add_column("Owner change", style="cyan")
         table.add_column("Mode change", style="green")
+        table.add_column("Skipped", style="yellow")
 
         for path in sorted(per_path):
             row = per_path[path]
             table.add_row(
-                str(path), row.get("owner", "—"), row.get("mode", "—")
+                str(path),
+                row.get("owner", "—"),
+                row.get("mode", "—"),
+                row.get("skipped", "—"),
             )
 
         console.print(table)
         console.print(
             f"\nSummary: {counts['mode']} mode change(s), "
-            f"{counts['owner']} owner change(s)"
+            f"{counts['owner']} owner change(s), "
+            f"{counts['skipped']} skipped item(s)"
         )
+
+        if counts["mode"] == 0 and counts["owner"] == 0:
+            console.print(
+                "\n[yellow]No applicable changes. "
+                "Skipped items were not restored.[/yellow]"
+            )
+            return
 
         if args.dry_run:
             console.print(

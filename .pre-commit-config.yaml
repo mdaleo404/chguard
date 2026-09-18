@@ -3,19 +3,25 @@ repos:
     rev: 1.9.4
     hooks:
       - id: bandit
+        name: Security Scan with Bandit
         files: ^chguard/
         args: ["-lll", "-iii", "-s", "B110,B112"]
 
   - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 26.3.1
+    rev: 26.5.1
     hooks:
       - id: black
+        name: Enforce Black formatting
         language_version: python3
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        name: Enforce removal of trailing whitespace
       - id: end-of-file-fixer
+        name: Enforce end of the file format
       - id: check-yaml
+        name: Check YAML syntax
       - id: check-toml
+        name: Check TOML syntax

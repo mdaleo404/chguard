@@ -283,3 +283,9 @@ Run the pytest suite with:
 ```
 poetry run pytest
 ```
+
+## Support
+
+If you find **chguard** useful, consider supporting its development:
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/mdaleo404)

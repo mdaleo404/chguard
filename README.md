@@ -85,7 +85,7 @@ It only concerns itself with **ownership** and **permissions**.
 
 ## Installation
 
-### From GuardUtils package repo
+### From the SysMD package repository
 
 This is the preferred method of installation.
 
@@ -95,7 +95,7 @@ This is the preferred method of installation.
 
 ```bash
 sudo mkdir -p /usr/share/keyrings
-curl -fsSL https://repo.sysmd.uk/guardutils/guardutils.gpg | sudo gpg --dearmor -o /usr/share/keyrings/guardutils.gpg
+curl -fsSL https://repo.sysmd.uk/sysmd/sysmd.gpg | sudo gpg --dearmor -o /usr/share/keyrings/sysmd.gpg
 ```
 
 The GPG fingerprint is `0032C71FA6A11EF9567D4434C5C06BD4603C28B1`.
@@ -103,7 +103,7 @@ The GPG fingerprint is `0032C71FA6A11EF9567D4434C5C06BD4603C28B1`.
 #### 2) Add the APT source
 
 ```bash
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/guardutils.gpg] https://repo.sysmd.uk/guardutils/debian stable main" | sudo tee /etc/apt/sources.list.d/guardutils.list
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/sysmd.gpg] https://repo.sysmd.uk/sysmd/debian stable main" | sudo tee /etc/apt/sources.list.d/sysmd.list
 ```
 
 #### 3) Update and install
@@ -118,20 +118,20 @@ sudo apt install chguard
 #### 1) Import the GPG key
 
 ```
-sudo rpm --import https://repo.sysmd.uk/guardutils/guardutils.gpg
+sudo rpm --import https://repo.sysmd.uk/sysmd/sysmd.gpg
 ```
 
 #### 2) Add the repository configuration
 
 ```
-sudo tee /etc/yum.repos.d/guardutils.repo > /dev/null << 'EOF'
-[guardutils]
-name=GuardUtils Repository
-baseurl=https://repo.sysmd.uk/guardutils/rpm/$basearch
+sudo tee /etc/yum.repos.d/sysmd.repo > /dev/null << 'EOF'
+[sysmd]
+name=SysMD Repository
+baseurl=https://repo.sysmd.uk/sysmd/rpm/$basearch
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
-gpgkey=https://repo.sysmd.uk/guardutils/guardutils.gpg
+gpgkey=https://repo.sysmd.uk/sysmd/sysmd.gpg
 EOF
 ```
 

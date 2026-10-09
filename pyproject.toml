@@ -21,7 +21,7 @@ Repository = "https://git.sysmd.uk/guardutils/chguard"
 chguard = "chguard.cli:main"
 
 [tool.poetry.group.dev.dependencies]
-pre-commit = "^3.8"
+pre-commit = "^4.0.0"
 pytest = "^9.1.1"
 
 [tool.black]

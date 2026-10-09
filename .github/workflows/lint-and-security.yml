@@ -77,3 +77,28 @@ jobs:
             and
             ( [ .dependencies[] | (.vulns // [])[] | select((.fix_versions | length) > 0) ] | length == 0 )
           ' pip-audit.json
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        run: pip install "poetry>=2,<3"
+
+      - name: Install project and dependencies
+        run: poetry install --with dev
+
+      - name: Run tests
+        run: poetry run pytest

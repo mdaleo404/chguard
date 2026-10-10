@@ -1,6 +1,6 @@
 [project]
 name = "chguard"
-version = "0.6.0"
+version = "0.6.1"
 description = "Safety-first tool to snapshot and restore filesystem ownership and permissions."
 authors = [{ name = "Marco D'Aleo", email = "marco@marcodaleo.com" }]
 license = "GPL-3.0-or-later"

@@ -11,92 +11,17 @@ jobs:
 
     env:
       TARGET_DIR: .
-      COSIGN_VERSION: v3.0.5
-      SYFT_VERSION: v1.42.3
-      GRYPE_VERSION: v0.110.0
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Cosign (bootstrap)
-        run: |
-          set -euo pipefail
+      # Tool versions are centralised in the shared actions; bump them there and
+      # re-tag rather than editing every repository.
+      - name: Install Grype
+        uses: https://git.sysmd.uk/mdaleo404/actions/install-grype@v1
 
-          FILE="cosign-linux-amd64"
-
-          curl -fLO https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/${FILE}
-
-          chmod +x ${FILE}
-          mv ${FILE} /usr/local/bin/cosign
-
-          cosign version
-
-      - name: Install Syft (verified)
-        run: |
-          set -euo pipefail
-
-          VERSION_NO_V="${SYFT_VERSION#v}"
-          FILE="syft_${VERSION_NO_V}_linux_amd64.tar.gz"
-          BASE_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}"
-
-          curl -fLO ${BASE_URL}/${FILE}
-          curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt
-          curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt.sig
-          curl -fLO ${BASE_URL}/syft_${VERSION_NO_V}_checksums.txt.pem
-
-          cosign verify-blob \
-            --signature syft_${VERSION_NO_V}_checksums.txt.sig \
-            --certificate syft_${VERSION_NO_V}_checksums.txt.pem \
-            --certificate-identity-regexp "https://github.com/anchore/syft" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            syft_${VERSION_NO_V}_checksums.txt
-
-          CHECKSUM_LINE=$(grep " ${FILE}$" syft_${VERSION_NO_V}_checksums.txt)
-          if [ -z "$CHECKSUM_LINE" ]; then
-            echo "Missing checksum entry for ${FILE}"
-            exit 1
-          fi
-
-          echo "$CHECKSUM_LINE" | sha256sum -c -
-
-          tar -xzf ${FILE}
-          mv syft /usr/local/bin/
-
-          syft version
-
-      - name: Install Grype (verified)
-        run: |
-          set -euo pipefail
-
-          VERSION_NO_V="${GRYPE_VERSION#v}"
-          FILE="grype_${VERSION_NO_V}_linux_amd64.tar.gz"
-          BASE_URL="https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}"
-
-          curl -fLO ${BASE_URL}/${FILE}
-          curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt
-          curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt.sig
-          curl -fLO ${BASE_URL}/grype_${VERSION_NO_V}_checksums.txt.pem
-
-          cosign verify-blob \
-            --signature grype_${VERSION_NO_V}_checksums.txt.sig \
-            --certificate grype_${VERSION_NO_V}_checksums.txt.pem \
-            --certificate-identity-regexp "https://github.com/anchore/grype" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            grype_${VERSION_NO_V}_checksums.txt
-
-          CHECKSUM_LINE=$(grep " ${FILE}$" grype_${VERSION_NO_V}_checksums.txt)
-          if [ -z "$CHECKSUM_LINE" ]; then
-            echo "Missing checksum entry for ${FILE}"
-            exit 1
-          fi
-
-          echo "$CHECKSUM_LINE" | sha256sum -c -
-
-          tar -xzf ${FILE}
-          mv grype /usr/local/bin/
-
-          grype version
+      - name: Install Syft
+        uses: https://git.sysmd.uk/mdaleo404/actions/install-syft@v1
 
       - name: Generate SBOM
         working-directory: ${{ env.TARGET_DIR }}
@@ -109,38 +34,16 @@ jobs:
           echo "Packages discovered by Syft:"
           jq -r '.artifacts[] | "\(.name)@\(.version) [\(.type)]"' sbom.json | sort
 
-      - name: Run Grype scan (JSON)
+      # Composite actions run from the workspace root, so pass the target and
+      # report relative to it (TARGET_DIR is "." for most repositories).
+      - name: Scan SBOM with Grype
         id: audit
         continue-on-error: true
-        working-directory: ${{ env.TARGET_DIR }}
-        run: |
-          grype sbom:sbom.json -o json > grype.json
-
-          echo "Vulnerabilities (fixable only):"
-          jq -r '
-            .matches[]
-            | select((.vulnerability.fix.versions | length) > 0)
-            | "\(.artifact.name)@\(.artifact.version) -> \(.vulnerability.id) [\(.vulnerability.severity)] | fixed: \(.vulnerability.fix.versions[0])"
-          ' grype.json
-
-          # Fail only on fixable MEDIUM/HIGH/CRITICAL
-          jq -e '
-            [
-              .matches[]?
-              | select(
-                  (
-                    .vulnerability.severity == "Medium" or
-                    .vulnerability.severity == "High" or
-                    .vulnerability.severity == "Critical"
-                  )
-                  and
-                  (
-                    (.vulnerability.fix.versions | length) > 0
-                  )
-                )
-            ]
-            | length == 0
-          ' grype.json
+        uses: https://git.sysmd.uk/mdaleo404/actions/scan-image@v1
+        with:
+          target: sbom:${{ env.TARGET_DIR }}/sbom.json
+          severities: Medium,High,Critical
+          report-path: ${{ env.TARGET_DIR }}/grype.json
 
       - name: Show full Grype table
         working-directory: ${{ env.TARGET_DIR }}

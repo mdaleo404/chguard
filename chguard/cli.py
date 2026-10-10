@@ -6,6 +6,7 @@ import grp
 import importlib.metadata
 import os
 import pwd
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -164,6 +165,28 @@ def _common_snapshot_root(paths: list[Path]) -> Path:
         return paths[0].resolve()
 
     return Path(os.path.commonpath([str(p.resolve()) for p in paths]))
+
+
+def _create_auto_state(
+    conn, root_path: Path, created_by_uid: int
+) -> tuple[int, str]:
+    base_name = f"auto-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    suffix = 0
+
+    while True:
+        auto_name = base_name if suffix == 0 else f"{base_name}-{suffix}"
+        try:
+            state_id = create_state(
+                conn,
+                auto_name,
+                str(root_path),
+                created_by_uid,
+                commit=False,
+            )
+        except sqlite3.IntegrityError:
+            suffix += 1
+        else:
+            return state_id, auto_name
 
 
 def _type_for_mode(mode: int) -> str | None:
@@ -451,12 +474,11 @@ def main() -> None:
         paths = _extract_paths_from_command(wrapper_cmd)
 
         if paths:
-            auto_name = f"auto-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
             root_path = _common_snapshot_root(paths)
 
             with conn:
-                state_id = create_state(
-                    conn, auto_name, str(root_path), os.getuid(), commit=False
+                state_id, auto_name = _create_auto_state(
+                    conn, root_path, os.getuid()
                 )
 
                 seen_paths: set[str] = set()

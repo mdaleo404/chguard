@@ -57,6 +57,8 @@ auto-20251230-161301
 ```
 
 Auto-generated snapshots are visually distinguished in the output so they are easy to identify.
+Snapshots created during the same second use a numeric suffix to remain unique,
+for example `auto-20251230-161301-1`.
 
 ### Scope control
 Restore:

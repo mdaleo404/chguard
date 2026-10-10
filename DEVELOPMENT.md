@@ -316,7 +316,7 @@ The wrapper snapshot flow is:
 wrapper_cmd
   -> _extract_paths_from_command()
   -> _common_snapshot_root()
-  -> create auto-YYYYMMDD-HHMMSS state
+   -> create a unique auto-YYYYMMDD-HHMMSS[-N] state
   -> _iter_entries_for_target() for each path
   -> insert each relative path once
   -> run subprocess.run(wrapper_cmd)
@@ -798,7 +798,8 @@ The list of `PlannedChange` objects produced before any mutation occurs.
 The `chguard -- chmod|chown|chgrp ...` mode that saves an automatic pre-command snapshot before running the command.
 
 **Auto snapshot**
-A wrapper-created state named like `auto-YYYYMMDD-HHMMSS`.
+A wrapper-created state named like `auto-YYYYMMDD-HHMMSS`, with a numeric
+suffix when needed to keep same-second snapshots unique.
 
 **Owner restore**
 Restoring numeric uid/gid with `os.chown(..., follow_symlinks=False)`.

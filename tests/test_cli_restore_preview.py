@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+import chguard.cli as cli
 from chguard.cli import _restore_preview_rows, main
 from chguard.db import connect, create_state, init_db
 from chguard.restore import PlannedChange
@@ -109,3 +113,52 @@ def test_restore_with_only_skipped_items_does_not_prompt(
     output = capsys.readouterr().out
     assert "missing path" in output
     assert "No applicable changes" in output
+
+
+def test_wrapper_uses_unique_auto_names_within_same_second(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "states.db"
+    target = tmp_path / "target"
+    target.write_text("data", encoding="utf-8")
+
+    class FixedDatetime:
+        @classmethod
+        def now(cls) -> datetime:
+            return datetime(2026, 10, 10, 0, 10, 48)
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda command: SimpleNamespace(returncode=0),
+    )
+
+    for _ in range(2):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "chguard",
+                "--db",
+                str(db_path),
+                "--",
+                "chmod",
+                "600",
+                str(target),
+            ],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 0
+
+    conn = connect(db_path)
+    rows = conn.execute("SELECT name FROM states ORDER BY id").fetchall()
+    conn.close()
+
+    assert rows == [
+        ("auto-20261010-001048",),
+        ("auto-20261010-001048-1",),
+    ]

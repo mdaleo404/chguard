@@ -69,7 +69,7 @@ pyproject.toml             Poetry package metadata and console script
 poetry.lock                locked dependency graph
 README.md                  user-facing documentation
 .pre-commit-config.yaml    Black and generic pre-commit hooks
-.gitea/workflows/          lint, dependency audit, SBOM and Grype workflows
+.gitea/workflows/          lint and dependency-audit workflows
 dist/                      built release artifacts, not source
 ```
 
@@ -593,17 +593,6 @@ Gitea pull request workflow:
   -> pre-commit run --all-files
   -> poetry export dependencies
   -> pip-audit dependency audit
-```
-
-Scheduled/manual security workflow:
-
-```text
-.gitea/workflows/security-scan.yml
-  -> install verified Cosign, Syft, and Grype
-  -> generate SBOM
-  -> scan for vulnerabilities
-  -> notify Node-RED on fixable Medium/High/Critical vulnerabilities
-  -> fail workflow on those vulnerabilities
 ```
 
 Pre-commit currently includes Bandit, Black, trailing whitespace, EOF, YAML, and TOML checks.

@@ -1,4 +1,4 @@
-name: Lint & Security
+name: CI
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  precommit-and-security:
+  lint-and-security:
     name: lint-and-security
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -70,8 +70,9 @@ jobs:
             | "\($d.name)@\($d.version) -> \(.id) [fix: \(if (.fix_versions | length) > 0 then (.fix_versions | join(", ")) else "none" end)]"
           ' pip-audit.json
 
-          # Fail only on fixable findings (mirrors the Grype policy in security-scan.yml).
-          # The type guard ensures a crashed/empty report fails rather than silently passing.
+          # Fail only on fixable findings. The type guard ensures a crashed or empty
+          # report fails rather than silently passing. Dependency security updates
+          # are handled by the central Renovate job.
           jq -e '
             (.dependencies | type) == "array"
             and
@@ -82,6 +83,10 @@ jobs:
     name: tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
 
     steps:
       - name: Checkout code
@@ -92,7 +97,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install Poetry
         run: pip install "poetry>=2,<3"
